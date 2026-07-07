@@ -8,6 +8,7 @@ public class CameraOcclusionTransparency : MonoBehaviour
 
     [Header("Exclude Layers")]
     public LayerMask excludeLayers;
+    
 
     [Header("Transparency Settings")]
     [Range(0f, 1f)]
