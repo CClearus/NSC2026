@@ -1,0 +1,40 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e8db9b89c57dc844c8e61d2f6dd070f1, type: 3}
+  m_Name: GameDataSO
+  m_EditorClassIdentifier: Assembly-CSharp::Hacking11
+  variations:
+  - variationName: 2 LINE
+    amount: 2
+    positions:
+    - startPosition: {x: 1, y: 1}
+      endPosition: {x: 1, y: 8}
+    - startPosition: {x: 8, y: 1}
+      endPosition: {x: 8, y: 8}
+  - variationName: 3 LINE
+    amount: 3
+    positions:
+    - startPosition: {x: 0, y: 0}
+      endPosition: {x: 0, y: 0}
+    - startPosition: {x: 0, y: 0}
+      endPosition: {x: 0, y: 0}
+    - startPosition: {x: 0, y: 0}
+      endPosition: {x: 0, y: 0}
+  - variationName: 3 LINE2
+    amount: 3
+    positions:
+    - startPosition: {x: 0, y: 0}
+      endPosition: {x: 0, y: 0}
+    - startPosition: {x: 0, y: 0}
+      endPosition: {x: 0, y: 0}
+    - startPosition: {x: 0, y: 0}
+      endPosition: {x: 0, y: 0}
