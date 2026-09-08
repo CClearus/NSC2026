@@ -34,6 +34,9 @@ public class GameDataSO : ScriptableObject
     {
         public Vector2Int startPosition;
         public Vector2Int endPosition;
+
+        // Leave alpha at 0 to auto-assign a palette color at spawn time.
+        public Color wireColor = new Color(0, 0, 0, 0);
     }
 
 #if UNITY_EDITOR

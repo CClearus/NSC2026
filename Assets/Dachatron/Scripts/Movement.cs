@@ -14,12 +14,51 @@ public class PlayerMovement : MonoBehaviour
     public float moveSpeed  = 5f;
     public float jumpForce  = 7f;
 
+    [Header("Camera Follow")]
+    [Tooltip("Camera to follow the player with. Leave empty to auto-use Camera.main.")]
+    public Transform cameraTransform;
+    [Tooltip("How smoothly the camera eases toward the player - lower is snappier, higher is laggier.")]
+    public float cameraSmoothTime = 0.15f;
+
     private Rigidbody rb;
     private bool isGrounded;
+
+    // The camera's position relative to the player, captured once at Start so
+    // whatever framing/distance is already set up in the Editor is preserved -
+    // no need to hand-tune offset numbers here.
+    private Vector3 cameraOffset;
+    private Vector3 cameraVelocity;
+    private bool hasCamera;
 
     private void Awake()
     {
         rb = GetComponent<Rigidbody>();
+    }
+
+    private void Start()
+    {
+        if (cameraTransform == null && Camera.main != null)
+            cameraTransform = Camera.main.transform;
+
+        if (cameraTransform != null)
+        {
+            cameraOffset = cameraTransform.position - transform.position;
+            hasCamera = true;
+        }
+        else
+        {
+            Debug.LogWarning("[PlayerMovement] No camera assigned and no Camera.main found - camera won't follow the player.");
+        }
+    }
+
+    // Runs after all Update/FixedUpdate movement has been applied this frame,
+    // so the camera never lags a frame behind the player.
+    private void LateUpdate()
+    {
+        if (!hasCamera) return;
+
+        Vector3 targetPosition = transform.position + cameraOffset;
+        cameraTransform.position = Vector3.SmoothDamp(cameraTransform.position, targetPosition, ref cameraVelocity, cameraSmoothTime);
     }
 
     private void Update()

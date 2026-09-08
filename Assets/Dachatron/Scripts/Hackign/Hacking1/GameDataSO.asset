@@ -17,24 +17,24 @@ MonoBehaviour:
     amount: 2
     positions:
     - startPosition: {x: 1, y: 1}
-      endPosition: {x: 1, y: 8}
-    - startPosition: {x: 8, y: 1}
-      endPosition: {x: 8, y: 8}
+      endPosition: {x: 1, y: 15}
+    - startPosition: {x: 15, y: 1}
+      endPosition: {x: 15, y: 15}
   - variationName: 3 LINE
     amount: 3
     positions:
-    - startPosition: {x: 0, y: 0}
-      endPosition: {x: 0, y: 0}
-    - startPosition: {x: 0, y: 0}
-      endPosition: {x: 0, y: 0}
-    - startPosition: {x: 0, y: 0}
-      endPosition: {x: 0, y: 0}
+    - startPosition: {x: 1, y: 1}
+      endPosition: {x: 1, y: 15}
+    - startPosition: {x: 7, y: 1}
+      endPosition: {x: 7, y: 15}
+    - startPosition: {x: 15, y: 1}
+      endPosition: {x: 15, y: 15}
   - variationName: 3 LINE2
     amount: 3
     positions:
-    - startPosition: {x: 0, y: 0}
-      endPosition: {x: 0, y: 0}
-    - startPosition: {x: 0, y: 0}
-      endPosition: {x: 0, y: 0}
-    - startPosition: {x: 0, y: 0}
-      endPosition: {x: 0, y: 0}
+    - startPosition: {x: 1, y: 1}
+      endPosition: {x: 15, y: 1}
+    - startPosition: {x: 1, y: 7}
+      endPosition: {x: 15, y: 7}
+    - startPosition: {x: 1, y: 15}
+      endPosition: {x: 15, y: 15}
