@@ -1,10 +1,25 @@
 using UnityEngine;
+using System.Collections;
 
 public class Gun : MonoBehaviour
 {
     private Vector3 targetPos;
     [SerializeField] private float range = 100f;
     [SerializeField] private float damage = 100f;
+
+    [Header("Muzzle Flash (optional)")]
+    [Tooltip("Light that pulses brighter each time the gun fires, like a muzzle flash.")]
+    [SerializeField] private Light muzzleLight;
+    [SerializeField] private float muzzleFlashIntensity = 8f;
+    [SerializeField] private float muzzleFlashDuration = 0.08f;
+
+    private float muzzleBaseIntensity;
+    private Coroutine muzzleRoutine;
+
+    private void Start()
+    {
+        if (muzzleLight != null) muzzleBaseIntensity = muzzleLight.intensity;
+    }
 
     // Update is called once per frame
     void Update()
@@ -37,6 +52,31 @@ public class Gun : MonoBehaviour
                     health.Damage(damage);
                 }
             }
+
+            Fire();
         }
+    }
+
+    private void Fire()
+    {
+        if (muzzleLight == null) return;
+        if (muzzleRoutine != null) StopCoroutine(muzzleRoutine);
+        muzzleRoutine = StartCoroutine(MuzzleFlashRoutine());
+    }
+
+    private IEnumerator MuzzleFlashRoutine()
+    {
+        muzzleLight.intensity = muzzleFlashIntensity;
+
+        float elapsedTime = 0f;
+        while (elapsedTime < muzzleFlashDuration)
+        {
+            elapsedTime += Time.deltaTime;
+            float t = Mathf.Clamp01(elapsedTime / muzzleFlashDuration);
+            muzzleLight.intensity = Mathf.Lerp(muzzleFlashIntensity, muzzleBaseIntensity, t);
+            yield return null;
+        }
+
+        muzzleLight.intensity = muzzleBaseIntensity;
     }
 }

@@ -22,6 +22,7 @@ public class PlayerMovement : MonoBehaviour
 
     private Rigidbody rb;
     private bool isGrounded;
+    private bool canMove = true; // false while something (e.g. the inventory) is locking movement
 
     // The camera's position relative to the player, captured once at Start so
     // whatever framing/distance is already set up in the Editor is preserved -
@@ -63,6 +64,8 @@ public class PlayerMovement : MonoBehaviour
 
     private void Update()
     {
+        if (!canMove) return;
+
         if (Input.GetKeyDown(jumpKey))
         {
             if (isGrounded)
@@ -73,8 +76,25 @@ public class PlayerMovement : MonoBehaviour
         }
     }
 
+    // Lets other systems (e.g. the inventory UI) freeze/unfreeze movement without
+    // disabling this whole component - gravity and jumping-in-progress still apply.
+    public void SetMovementLocked(bool locked)
+    {
+        canMove = !locked;
+
+        if (locked)
+        {
+            Vector3 v = rb.linearVelocity;
+            v.x = 0f;
+            v.z = 0f;
+            rb.linearVelocity = v; // stop horizontal sliding immediately; keep vertical (gravity/jump) velocity
+        }
+    }
+
     private void FixedUpdate()
     {
+        if (!canMove) return;
+
         float horizontal = 0f;
 
         if (Input.GetKey(moveRightKey))

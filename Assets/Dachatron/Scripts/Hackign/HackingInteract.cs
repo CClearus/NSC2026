@@ -29,6 +29,8 @@ public class Interact : MonoBehaviour
     public RectTransform keybindIcon;
     [Tooltip("The 'to interact' label - keep it placed at its final (shown) position in the Editor, it'll be moved to start hidden automatically.")]
     public RectTransform interactHintLabel;
+    [Tooltip("How long the hint label takes to slide out, once it starts. It only starts sliding after the keybind icon has fully faded in.")]
+    public float hintSlideDuration = 0.25f;
 
     private Vector2 hintShownPos;
     private bool hasHint;
@@ -107,24 +109,37 @@ public class Interact : MonoBehaviour
 
     private IEnumerator FadeInRoutine(float duration)
     {
+        // Phase 1: fade the panel (keybind icon included) in on its own - the hint label
+        // stays hidden, overlapping the icon, until the icon has fully appeared.
         float elapsedTime = 0f;
         float startAlpha = PanelBase.alpha;
-        Vector2 hintStartPos = hasHint ? interactHintLabel.anchoredPosition : default;
 
         while (elapsedTime < duration)
         {
             elapsedTime += Time.deltaTime;
             float t = Mathf.Clamp01(elapsedTime / duration);
             PanelBase.alpha = Mathf.SmoothStep(startAlpha, 1f, t);
-
-            if (hasHint)
-                interactHintLabel.anchoredPosition = Vector2.Lerp(hintStartPos, hintShownPos, Mathf.SmoothStep(0f, 1f, t));
-
             yield return null;
         }
 
         PanelBase.alpha = 1f;
-        if (hasHint) interactHintLabel.anchoredPosition = hintShownPos;
+
+        // Phase 2: now that the keybind icon is fully visible, slide the hint label out.
+        if (hasHint)
+        {
+            elapsedTime = 0f;
+            Vector2 hintStartPos = interactHintLabel.anchoredPosition;
+
+            while (elapsedTime < hintSlideDuration)
+            {
+                elapsedTime += Time.deltaTime;
+                float t = Mathf.Clamp01(elapsedTime / hintSlideDuration);
+                interactHintLabel.anchoredPosition = Vector2.Lerp(hintStartPos, hintShownPos, Mathf.SmoothStep(0f, 1f, t));
+                yield return null;
+            }
+
+            interactHintLabel.anchoredPosition = hintShownPos;
+        }
     }
 
     public void StartFadeOut(float duration)
