@@ -16,9 +16,12 @@ public class InventoryUI : MonoBehaviour
     public CanvasGroup slotGroup;
 
     [Header("Hidden while inventory is open")]
-    public GameObject focus;
-    public GameObject nameLabel;
-    public GameObject descriptionLabel;
+    [Tooltip("Any number of UI elements - each is SetActive(false) while the inventory is open, and restored to whatever active state it was in before, once it closes.")]
+    public GameObject[] hideWhileOpen;
+
+    [Header("Shown while inventory is open")]
+    [Tooltip("Any number of Canvas Groups that fade in alongside the Slot Group when the inventory opens, and fade out with it when it closes. Each needs a Canvas Group component.")]
+    public CanvasGroup[] showWhileOpen;
 
     [Header("Locked while inventory is open")]
     [Tooltip("Player can't move until the inventory is closed again.")]
@@ -35,12 +38,10 @@ public class InventoryUI : MonoBehaviour
     private bool isOpen = false;
     private Coroutine fadeRoutine;
 
-    // Whatever active state each of these was in right before Open() hid them - could
-    // already be off (manually, or because some other script only shows them when
-    // aiming at an interactable). Close() restores this instead of forcing them on.
-    private bool wasFocusActive;
-    private bool wasNameActive;
-    private bool wasDescriptionActive;
+    // Whatever active state each hideWhileOpen entry was in right before Open() hid it -
+    // could already be off (manually, or because some other script only shows it when
+    // aiming at an interactable). Close() restores this instead of forcing them all on.
+    private bool[] hideWhileOpenPrevState;
 
     private void Awake()
     {
@@ -53,6 +54,18 @@ public class InventoryUI : MonoBehaviour
             slotGroup.interactable = false;
             slotGroup.blocksRaycasts = false;
         }
+
+        // showWhileOpen groups fade in/out together with slotGroup - same starting state.
+        for (int i = 0; i < showWhileOpen.Length; i++)
+        {
+            CanvasGroup g = showWhileOpen[i];
+            if (g == null) continue;
+            g.alpha = 0f;
+            g.interactable = false;
+            g.blocksRaycasts = false;
+        }
+
+        hideWhileOpenPrevState = new bool[hideWhileOpen != null ? hideWhileOpen.Length : 0];
     }
 
     private void Update()
@@ -69,13 +82,13 @@ public class InventoryUI : MonoBehaviour
         if (isOpen) return;
         isOpen = true;
 
-        wasFocusActive = focus != null && focus.activeSelf;
-        wasNameActive = nameLabel != null && nameLabel.activeSelf;
-        wasDescriptionActive = descriptionLabel != null && descriptionLabel.activeSelf;
-
-        if (focus != null) focus.SetActive(false);
-        if (nameLabel != null) nameLabel.SetActive(false);
-        if (descriptionLabel != null) descriptionLabel.SetActive(false);
+        for (int i = 0; i < hideWhileOpen.Length; i++)
+        {
+            GameObject go = hideWhileOpen[i];
+            if (go == null) continue;
+            hideWhileOpenPrevState[i] = go.activeSelf;
+            go.SetActive(false);
+        }
 
         if (playerMovement != null) playerMovement.SetMovementLocked(true);
         if (weaponController != null) weaponController.ForceUnequip();
@@ -89,9 +102,12 @@ public class InventoryUI : MonoBehaviour
         if (!isOpen) return;
         isOpen = false;
 
-        if (focus != null) focus.SetActive(wasFocusActive);
-        if (nameLabel != null) nameLabel.SetActive(wasNameActive);
-        if (descriptionLabel != null) descriptionLabel.SetActive(wasDescriptionActive);
+        for (int i = 0; i < hideWhileOpen.Length; i++)
+        {
+            GameObject go = hideWhileOpen[i];
+            if (go == null) continue;
+            go.SetActive(hideWhileOpenPrevState[i]);
+        }
 
         if (playerMovement != null) playerMovement.SetMovementLocked(false);
 
@@ -135,18 +151,23 @@ public class InventoryUI : MonoBehaviour
         if (vignetteGroup2 != null) vignetteGroup2.alpha = targetAlpha;
     }
 
+    // Fades slotGroup and every showWhileOpen Canvas Group together, on the same
+    // timing/curve, so they all appear/disappear as one cohesive "slot" reveal.
     private IEnumerator FadeSlot(bool show, float duration)
     {
-        float startAlpha = slotGroup != null ? slotGroup.alpha : 0f;
+        float slotStartAlpha = slotGroup != null ? slotGroup.alpha : 0f;
+        float[] showStartAlphas = new float[showWhileOpen.Length];
+        for (int i = 0; i < showWhileOpen.Length; i++)
+        {
+            showStartAlphas[i] = showWhileOpen[i] != null ? showWhileOpen[i].alpha : 0f;
+        }
+
         float targetAlpha = show ? 1f : 0f;
 
-        // While showing, the slot group needs to be clickable right away; while hiding,
-        // switch it off immediately so it stops eating clicks/raycasts as it fades out.
-        if (slotGroup != null)
-        {
-            slotGroup.interactable = show;
-            slotGroup.blocksRaycasts = show;
-        }
+        // While showing, groups need to be clickable right away; while hiding, switch
+        // them off immediately so they stop eating clicks/raycasts as they fade out.
+        SetInteractable(slotGroup, show);
+        for (int i = 0; i < showWhileOpen.Length; i++) SetInteractable(showWhileOpen[i], show);
 
         float elapsedTime = 0f;
         while (elapsedTime < duration)
@@ -154,11 +175,26 @@ public class InventoryUI : MonoBehaviour
             elapsedTime += Time.deltaTime;
             float t = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(elapsedTime / duration));
 
-            if (slotGroup != null) slotGroup.alpha = Mathf.Lerp(startAlpha, targetAlpha, t);
+            if (slotGroup != null) slotGroup.alpha = Mathf.Lerp(slotStartAlpha, targetAlpha, t);
+            for (int i = 0; i < showWhileOpen.Length; i++)
+            {
+                if (showWhileOpen[i] != null) showWhileOpen[i].alpha = Mathf.Lerp(showStartAlphas[i], targetAlpha, t);
+            }
 
             yield return null;
         }
 
         if (slotGroup != null) slotGroup.alpha = targetAlpha;
+        for (int i = 0; i < showWhileOpen.Length; i++)
+        {
+            if (showWhileOpen[i] != null) showWhileOpen[i].alpha = targetAlpha;
+        }
+    }
+
+    private void SetInteractable(CanvasGroup group, bool value)
+    {
+        if (group == null) return;
+        group.interactable = value;
+        group.blocksRaycasts = value;
     }
 }
