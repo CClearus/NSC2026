@@ -9,6 +9,7 @@ TagManager:
   - Door
   - CellEnd
   - CellStart
+  - Item
   layers:
   - Default
   - TransparentFX
@@ -17,7 +18,7 @@ TagManager:
   - Water
   - UI
   - Interactable
-  - 
+  - Trigger
   - 
   - 
   - 
@@ -55,3 +56,4 @@ TagManager:
   - Light Layer 5
   - Light Layer 6
   - Light Layer 7
+  m_MigratedRenderPipelines: []

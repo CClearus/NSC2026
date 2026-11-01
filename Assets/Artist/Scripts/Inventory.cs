@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.InputSystem;
 using System;
+using System.Collections.Generic;
 
 
 public class Inventory : MonoBehaviour
@@ -16,6 +17,8 @@ public class Inventory : MonoBehaviour
     private GameObject[] inventory;
     private int selectedSlot = 0;
     [SerializeField] private float dropOffset = 2f;
+    [SerializeField] private float itemDetectionRadius = 5f;
+    private readonly HashSet<ItemHighlight> highlightedItems = new HashSet<ItemHighlight>();
 
     private void Start()
     {
@@ -31,15 +34,33 @@ public class Inventory : MonoBehaviour
 
     private void Update()
     {
-        Collider[] items = Physics.OverlapSphere(transform.position, 5f, LayerMask.GetMask("Item"));
+        Collider[] items = Physics.OverlapSphere(transform.position, itemDetectionRadius, LayerMask.GetMask("Item"));
 
+        var nearbyHighlights = new HashSet<ItemHighlight>();
         foreach (var item in items)
         {
+            ItemHighlight highlight = item.GetComponent<ItemHighlight>();
+            if (highlight != null)
+            {
+                nearbyHighlights.Add(highlight);
+                highlight.SetHighlighted(true);
+            }
+
             if (Input.GetKeyDown(KeyCode.E))
             {
                 PickUpItem(item.gameObject);
             }
         }
+
+        foreach (var highlight in highlightedItems)
+        {
+            if (!nearbyHighlights.Contains(highlight))
+            {
+                highlight.SetHighlighted(false);
+            }
+        }
+        highlightedItems.Clear();
+        highlightedItems.UnionWith(nearbyHighlights);
 
         ScrollInventory(Convert.ToInt32(Input.mouseScrollDelta.y));
 
