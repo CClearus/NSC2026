@@ -1,0 +1,10 @@
+Volumetric Clouds URP (https://github.com/jiaozi158/UnityVolumetricCloudsURP, MIT) - patched for Unity 6000.6 / URP 17.6
+
+Changes made to the original (May 2025) source:
+- VolumetricCloudsURP.cs: removed the 6 legacy Compatibility Mode methods
+  (OnCameraSetup(cmd, ref RenderingData) / Execute(context, ref RenderingData) in the 3 passes).
+  URP 17.6 no longer has these base methods; Unity 6 uses the RecordRenderGraph path that is already in the file.
+- Both .asmdef files: dropped references to GUIDs that do not exist in this project
+  (Unity.Mathematics is now built into the engine).
+If Unity ever reports errors from this folder after an update, this folder can simply be deleted
+(also remove the Volumetric Clouds renderer feature from PC_Renderer and the override from the volume profile).
