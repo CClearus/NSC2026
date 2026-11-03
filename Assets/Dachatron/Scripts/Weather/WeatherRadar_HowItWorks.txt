@@ -1,0 +1,471 @@
+=====================================================================
+ WEATHER RADAR - HOW IT WORKS
+ (WeatherRadar.shader + WeatherMapUI.cs)
+=====================================================================
+
+Contents
+  0. Overview
+  1. The overall formula (everything in one place)
+  2. Weather as a height field
+  3. How storm shapes form (noise, fractal layers, threshold)
+  4. How storms merge and split
+  5. Distortion (domain warping)
+  6. Motion (wind drift, growth and decay)
+  7. Rotation (swirl, wind-aligned stretching)
+  8. Radar realism (spatial bins, radar frames, edge grain)
+  9. Colour and shading of the rain
+ 10. Background
+ 11. The player dot (glow and pulse)
+ 12. The beep sound
+ 13. Parameters and what they change
+ 14. Is it random?
+
+
+---------------------------------------------------------------------
+ 0. OVERVIEW
+---------------------------------------------------------------------
+
+The radar is a square UI panel (toggle with G). The picture is computed
+entirely on the GPU: for every pixel the shader asks
+
+    "how much rain is at this point of the map, at this moment?"
+
+and colours the pixel accordingly. No weather data is stored. Storms are
+not objects; they are the visible result of one continuous mathematical
+field that is re-evaluated every frame.
+
+The CPU script (WeatherMapUI.cs) only supplies two clocks:
+  - the weather clock, stepped in "radar frames"
+  - the ping clock, which drives the dot's flash and the beep together
+
+
+---------------------------------------------------------------------
+ 1. THE OVERALL FORMULA
+---------------------------------------------------------------------
+
+Notation
+  uv              pixel position on the square, (0,0) to (1,1)
+  t               weather time
+  θ               wind direction
+  R(a)            2-D rotation by angle a:   R(a) = [ cos a  -sin a ]
+                                                    [ sin a   cos a ]
+  noise(p)        gradient noise, ~0..1                      (section 3)
+  fBm(p)          sum of 5 noise layers, ~0..1               (section 3)
+  clamp(x)        limits x to the range 0..1
+  lerp(a,b,k)     a + (b - a)·k
+  ⌊x⌋, ⌈x⌉        round down, round up
+
+Step 1 - pixel to map position (with radar bins)
+  uv_bin = ( ⌊uv · N⌋ + 0.5 ) / N                          N = 240 bins
+  p      = (uv_bin - 0.5) · S + O                           S = map size, O = offset
+
+Step 2 - wind drift
+  w_dir  = (cos θ, sin θ)
+  q      = 0.9 · (p - w_dir · v · t) + 7.1 · Seed           v = wind speed
+
+Step 3 - domain warp (distortion), slowly rotating
+  W      = ( fBm(0.5q + e·t·(0.6,-0.4) + 1.7) ,
+             fBm(0.5q + e·t·(0.6,-0.4) + 9.2) ) - 0.5       e = evolution speed
+  W      = R(ω · t) · W                                     ω = swirl speed
+  q      = q + A · W                                        A = warp strength
+
+Step 4 - stretch along the wind
+  q_w    = R(-θ) · q
+  q_s    = ( 0.8 · q_w.x , 1.25 · q_w.y )
+
+Step 5 - the rain landscape
+  big    = fBm( q_s + e·t·(0.3, 0.2) )
+  cells  = fBm( 3.1·q_s + 4.3 + c·t·(1, 0.35) )             c = core churn speed
+  r      = big + 0.35·(cells - 0.5) + g·( noise(14q + 3c·t) - 0.5 )
+                                                            g = edge grain
+
+Step 6 - threshold (the water line)
+  E      = lerp(0.75, 0.35, Coverage)
+  rain   = clamp( 2.2 · (r - E) / (1 - E) )
+
+Step 7 - scattered showers
+  speck  = step(0.8, noise(9q + 2 + 2c·t)) · smoothstep(E - 0.12, E - 0.02, r)
+  rain   = max(rain, 0.15 · speck)
+
+Step 8 - storm cores and intensity
+  core   = clamp( 2.5 · (cells - 0.55) )^1.5 · smoothstep(0.15, 0.5, rain)
+  I      = clamp( (0.9 · rain + 0.8 · core) · Intensity )
+  I      = ⌈ I · L ⌉ / L                                    L = colour levels (9)
+
+Step 9 - colour and blending
+  α      = 0                          if rain = 0
+           lerp(0.75, 0.92, I)        otherwise
+  C      = (1 - α) · Background(uv) + α · Ramp(I)
+
+Step 10 - player dot (on top)
+  d      = |uv - 0.5|
+  f      = (1 - φ)³                                         φ = ping phase 0..1
+  C      = C + red · 0.7 · e^( -d² / (D² · lerp(6,16,f)) ) · (0.3 + 0.9f)
+  C      = dot colour where d < D                           D = dot size
+
+Clocks (CPU)
+  t      = ⌊ game_time / Δ ⌋ · s                            Δ = 0.5 s, s = 1.5
+  φ      = frac( (real_time - time_opened) / P )            P = 1.6 s ping interval
+
+
+---------------------------------------------------------------------
+ 2. WEATHER AS A HEIGHT FIELD
+---------------------------------------------------------------------
+
+The whole map is one surface - a function giving every point on the
+plane a "rain potential" value at a given time:
+
+    r(x, y, t)  ->  a number, roughly 0..1
+
+Imagine an invisible hilly landscape lying over the map. High ground means
+rain; low ground means dry. Everything in this document is about how that
+landscape is built, bent, moved and finally coloured.
+
+
+---------------------------------------------------------------------
+ 3. HOW STORM SHAPES FORM
+---------------------------------------------------------------------
+
+3.1  Pseudo-random numbers (the hash)
+
+  Every integer grid corner k gets a "random" direction:
+
+      h(k) = -1 + 2 · frac( sin( k · M ) · 43758.5453 )
+
+  where M is a fixed matrix of constants. sin of a large value times a
+  huge constant, keeping only the fractional part, scrambles the digits so
+  the result looks random - but the same corner always gives the same
+  direction. This is why the map is repeatable.
+
+3.2  Gradient noise (smooth random hills)
+
+  For a point p inside a grid cell:
+      i = ⌊p⌋                 the cell
+      f = p - i               position inside the cell, 0..1
+
+  Each of the 4 corners contributes "how much its random slope points at p":
+      a = h(i)       · f
+      b = h(i+(1,0)) · (f - (1,0))
+      c = h(i+(0,1)) · (f - (0,1))
+      d = h(i+(1,1)) · (f - (1,1))
+
+  These are blended with a smooth S-curve:
+      fade(s) = 6s⁵ - 15s⁴ + 10s³
+      noise   = lerp( lerp(a,b,fade(f.x)), lerp(c,d,fade(f.x)), fade(f.y) )
+
+  fade() has zero first and second derivatives at 0 and 1, so the surface
+  is perfectly smooth across cell borders - no visible grid creases.
+
+3.3  Fractal layers (fBm - fractional Brownian motion)
+
+  Real clouds are lumpy at every size. So several copies of the noise are
+  stacked, each finer and weaker than the last:
+
+      fBm(p) = Σ  0.5ᵏ · noise( 2.03ᵏ · p + offsetₖ )   /  Σ 0.5ᵏ      k = 0..4
+
+  Layer 0 gives big storm masses; layers 1-4 add progressively smaller
+  ragged detail. The factor 2.03 (not exactly 2) and the per-layer offsets
+  stop the layers' grids lining up, which would show as artefacts.
+
+3.4  The threshold (the "water line")
+
+  A flat level E cuts through the landscape:
+
+      rain = clamp( (r - E) / (1 - E) )
+
+  Below the line: dry. Above it: raining, and heavier the further the hill
+  sticks out above the line. The outline of a storm is the contour line
+  r = E - which is why storm shapes are irregular and organic.
+
+  Coverage simply moves the water line: lower line = more of the landscape
+  sticks out = more rain on the map.
+
+3.5  Two scales combined
+
+      r = big + 0.35 · (cells - 0.5)
+
+  "big" (coarse) decides WHERE storms are. "cells" (about 3x finer) adds
+  clumps INSIDE them. Subtracting 0.5 centres the cells around zero, so they
+  add bumps and dents without shifting the average height.
+
+3.6  Storm cores
+
+      core = clamp( 2.5 · (cells - 0.55) )^1.5
+
+  Only the highest peaks of the fine layer count. Raising to the power 1.5
+  makes the cores small and concentrated (a sharper peak) instead of broad.
+  Cores only appear where it is already raining well:
+  · smoothstep(0.15, 0.5, rain).
+
+
+---------------------------------------------------------------------
+ 4. HOW STORMS MERGE AND SPLIT
+---------------------------------------------------------------------
+
+Nothing tracks individual storms. As the landscape changes over time
+(section 6), two hilltops that were separate "islands" above the water line
+can rise until the dip between them also clears the line - the islands join
+and the storms merge. The reverse splits them. Merging and splitting are
+simply the contour line r = E changing topology.
+
+Different effects are combined with two operations:
+  - addition  (r = big + cells + grain):  blends fields smoothly
+  - maximum   (rain = max(rain, specks)): union of two shapes - a point is
+                                         rainy if either says so
+
+
+---------------------------------------------------------------------
+ 5. DISTORTION - DOMAIN WARPING
+---------------------------------------------------------------------
+
+Instead of reading the landscape at the true point p, each point is first
+pushed by a second random field W, and the landscape is read there:
+
+    p'  =  p + A · W(p)
+    r   =  fBm(p')
+
+W is a smooth 2-D vector field built from two independent fBm values. The
+effect is like dragging a finger through paint: straight, round blobs are
+bent and twisted into poured, flowing shapes.
+
+The warp strength A controls how far points are pushed:
+  - small A (0.6):  natural raggedness
+  - large A (2+):   neighbouring points get pushed far apart, which pulls
+                    features out into long thin "fingers" (a smeared look)
+
+
+---------------------------------------------------------------------
+ 6. MOTION
+---------------------------------------------------------------------
+
+All motion is done by changing WHERE the field is sampled, never by moving
+pixels.
+
+6.1  Wind drift (advection)
+
+      p  ->  p - v · t · w_dir
+
+  Each moment the shader reads the landscape further "upwind", so every
+  feature appears to travel downwind at speed v. This is the same process
+  (advection) that carries real weather.
+
+6.2  Growth and decay (evolution)
+
+  Each layer gets its own time offset, at its own speed:
+
+      big    read at   q_s + e · t · (0.3, 0.2)        slow
+      cells  read at   q_s + c · t · (1, 0.35)         faster
+      warp   read at   0.5q + e · t · (0.6, -0.4)
+
+  Because the layers slide past each other, their sum keeps changing shape:
+  hills rise and fall through the water line, so storms grow, shrink, merge
+  and break up while they travel. The cores churn faster than the storm
+  around them because their layer moves faster (c > e).
+
+
+---------------------------------------------------------------------
+ 7. ROTATION
+---------------------------------------------------------------------
+
+7.1  Swirl - curling edges
+
+  The warp push field W is rotated slowly over time:
+
+      W(p, t) = R(ω · t) · W(p)
+
+  The direction every point gets pushed turns gradually, so the bends in
+  the storm shapes curl over time. Kept small (ω = 0.01 rad/s) because real
+  storms barely rotate at province scale.
+
+7.2  Wind-aligned stretching
+
+  Coordinates are rotated into the wind's frame, squashed, then sampled:
+
+      q_w = R(-θ) · q
+      q_s = ( 0.8 · q_w.x , 1.25 · q_w.y )
+
+  Compressing the coordinate along the wind makes features LONGER along the
+  wind direction (anisotropic scaling), like real rain bands.
+
+
+---------------------------------------------------------------------
+ 8. RADAR REALISM
+---------------------------------------------------------------------
+
+8.1  Spatial bins (sample-and-hold)
+
+  Real radar measures in chunks ("bins"). The map is divided into an N x N
+  grid and every pixel in a cell uses the value at the cell's centre:
+
+      uv_bin = ( ⌊uv · N⌋ + 0.5 ) / N
+
+  The field becomes piecewise constant, so storm edges are crisp and
+  slightly blocky.
+
+8.2  Radar frames (time quantisation)
+
+      t = ⌊ game_time / Δ ⌋ · s
+
+  The weather holds still for Δ seconds, then jumps forward by s - like a
+  radar loop played at ~2 frames per second. Weather time follows game
+  time, so storms keep moving while the map is closed and freeze when the
+  game is paused.
+
+8.3  Edge grain
+
+      r  <-  r + g · ( noise(14q) - 0.5 )
+
+  A very fine, weak noise. It only matters where the landscape is close to
+  the water line - only there is a tiny nudge enough to cross it - so storm
+  edges fray into crisp, broken returns while the inside of each storm is
+  unaffected.
+
+
+---------------------------------------------------------------------
+ 9. COLOUR AND SHADING OF THE RAIN
+---------------------------------------------------------------------
+
+9.1  Intensity
+
+      I = clamp( (0.9 · rain + 0.8 · core) · Intensity )
+
+9.2  Quantisation into bands
+
+  Real radar reports fixed intensity steps (dBZ levels), so I is snapped to
+  L discrete levels:
+
+      I = ⌈ I · L ⌉ / L
+
+  This produces distinct colour bands instead of a smooth gradient.
+
+9.3  Colour ramp (transfer function)
+
+  I is mapped through 5 colour stops, blending linearly between neighbours:
+
+      I      0.00         0.25        0.50          0.75          1.00
+      RGB  (.72,.88,1)  (.42,.62,1)  (.45,.40,.95)  (.70,.33,.82)  (.98,.34,.45)
+           light blue    blue         indigo        purple        red-pink
+
+      s = 4I,   k = ⌊s⌋,   colour = lerp( stop[k], stop[k+1], s - k )
+
+  Cool and pale for light rain, warm and saturated for heavy rain, so the
+  eye reads "more intense" without a legend.
+
+9.4  Compositing over the background
+
+  Standard "over" alpha blending:
+
+      C = (1 - α) · C_background + α · C_rain
+
+      α = 0                        where there is no rain (hard edge)
+      α = lerp(0.75, 0.92, I)      where there is rain (stronger = more opaque)
+
+  The hard 0-or-on step at the edge is why outlines are sharp with no halo.
+
+
+---------------------------------------------------------------------
+ 10. BACKGROUND
+---------------------------------------------------------------------
+
+  Flat grey (0.17, 0.18, 0.19), plus faint lines added on top (+0.06):
+    - 3 range rings:  circles at distance 0.15, 0.30, 0.45 from the centre
+    - a crosshair through the centre
+
+  Line thickness uses the screen-space derivative of the distance
+  (fwidth), so lines stay about one pixel wide at any panel size.
+
+
+---------------------------------------------------------------------
+ 11. THE PLAYER DOT - GLOW AND PULSE
+---------------------------------------------------------------------
+
+11.1  Glow (Gaussian falloff, additive light)
+
+      glow(d) = e^( -d² / σ² )                d = distance from the centre
+      C      <- C + red · 0.7 · glow · brightness
+
+  A Gaussian gives a soft bloom that fades smoothly to nothing. Because the
+  light is ADDED (not blended), it brightens whatever is underneath,
+  including rain - the way real light behaves.
+
+11.2  Pulse (decay envelope)
+
+  The ping phase φ runs 0 -> 1 once per beep. The flash strength is:
+
+      f = (1 - φ)³
+
+  f jumps to 1 at the beep and decays quickly (sharp attack, fast fade).
+  It drives three things at once:
+      glow radius       σ² = D² · lerp(6, 16, f)      the glow swells
+      glow brightness   0.3 + 0.9 · f                 never fully dark
+      dot colour        lerp(dark red, bright red, f)
+
+
+---------------------------------------------------------------------
+ 12. THE BEEP SOUND
+---------------------------------------------------------------------
+
+The sound is generated mathematically, not loaded from a file:
+
+    s(t)   = env(t) · [ 0.8 · sin(2π f t) + 0.2 · sin(2π · 2f · t) ]
+    env(t) = min(1, t / 0.005) · e^(-28 t)
+
+    f = 1250 Hz,  length 0.12 s,  44100 samples per second
+
+  - a pure tone plus a quieter octave (2f) gives the "electronic" timbre
+  - the 5 ms linear fade-in avoids a click at the start
+  - the exponential tail makes it a short "blip"
+  - the beep and the visual flash read the same clock φ, so they always
+    happen together
+
+
+---------------------------------------------------------------------
+ 13. PARAMETERS AND WHAT THEY CHANGE
+---------------------------------------------------------------------
+
+Material: Assets/Dachatron/Resources/WeatherRadar.mat
+
+  Name                  Default   Symbol   Effect
+  --------------------  --------  -------  ----------------------------------
+  Seed                  3.7       Seed     which "weather world" you get
+  Map Size              2.6       S        zoom (2.5-3.5 ≈ province)
+  Rain Coverage         0.45      -        lowers the water line E
+  Storm Intensity       1         -        pushes more cells to purple/red
+  Wind Direction        25°       θ        which way storms travel
+  Wind Speed            0.012     v        how fast they cross the map
+  Storm Evolution Speed 0.015     e        how fast shapes grow / decay
+  Swirl Speed           0.01      ω        how fast edges curl
+  Core Churn Speed      0.03      c        how lively the cores are
+  Shape Warp            0.6       A        raggedness (high = smeared)
+  Edge Grain            0.07      g        how broken-up the edges are
+  Radar Resolution      240       N        bins across (lower = blockier)
+  Colour Levels         9         L        number of colour bands
+  Player Dot Size       0.014     D        radius of the red dot
+  Border Width          0.006     -        thickness of the frame
+
+Script: WeatherMapUI (auto-created object "WeatherMap")
+
+  radarFrameInterval    0.5 s     Δ        time between radar frames
+  weatherPerFrame       1.5       s        weather time per frame
+  pingInterval          1.6 s     P        time between beeps / flashes
+  beepVolume            0.25      -        volume of the beep
+  beepPitch             1250 Hz   f        pitch of the beep
+  margin                40 px     -        gap to the screen edge
+
+
+---------------------------------------------------------------------
+ 14. IS IT RANDOM?
+---------------------------------------------------------------------
+
+It is PSEUDO-random: it looks random but is completely determined by the
+formula. The same Seed and the same weather time always give exactly the
+same picture.
+
+  - The pattern never visibly repeats: wind keeps carrying the view into
+    new regions of an effectively endless noise field.
+  - Because game time restarts at 0 when you press Play and the Seed is
+    fixed, every play session shows the same weather sequence. Picking a
+    random Seed at start-up would make each session different.
+  - After many hours of drift the coordinates become very large and the
+    sin-based hash starts to lose precision; this is far beyond a normal
+    play session.
