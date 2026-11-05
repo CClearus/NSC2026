@@ -1,0 +1,28 @@
+{
+    "name": "Dachatron.VolumetricLight.Editor",
+    "rootNamespace": "",
+    "references": [
+        "com.cqf.urpvolumetricfog.runtime",
+        "Unity.RenderPipelines.Core.Runtime",
+        "Unity.RenderPipelines.Universal.Runtime"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "CQF_VOLUMETRIC_FOG"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.cqf.urpvolumetricfog",
+            "expression": "0.0.0",
+            "define": "CQF_VOLUMETRIC_FOG"
+        }
+    ],
+    "noEngineReferences": false
+}
